@@ -1,4 +1,5 @@
 from django.urls import reverse
+from django.core.cache import cache
 from rest_framework.test import APITestCase
 from rest_framework import status
 from unittest.mock import patch
@@ -37,3 +38,34 @@ class WikipediaSearchViewTests(APITestCase):
                                    'search_term': 'abcefgh'}), HTTP_ACCEPT_LANGUAGE='cs')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIsNone(response.data.get('result'))
+
+
+class WikipediaSearchCachingTest(APITestCase):
+
+    @patch('wycuc_api.views.wikipedia.summary')
+    @patch('wycuc_api.views.wikipedia.search')
+    def test_wikipedia_summary_caching(self, mock_search, mock_summary):
+        search_term = 'Python'
+        lang = 'en'
+        summary_text = 'Python is a programming language...'
+
+        mock_search.return_value = [search_term]
+        mock_summary.return_value = summary_text
+        self.client.get(reverse(
+            'wikipedia-search', kwargs={'search_term': search_term}), HTTP_ACCEPT_LANGUAGE=lang)
+
+        mock_search.reset_mock()
+        mock_summary.reset_mock()
+
+        response = self.client.get(reverse(
+            'wikipedia-search', kwargs={'search_term': search_term}), HTTP_ACCEPT_LANGUAGE=lang)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['result'], summary_text)
+
+        mock_search.assert_not_called()
+        mock_summary.assert_not_called()
+
+        cache_key = f"wikipedia_summary_{search_term}_{lang}"
+        cached_summary = cache.get(cache_key)
+        self.assertEqual(cached_summary, summary_text)

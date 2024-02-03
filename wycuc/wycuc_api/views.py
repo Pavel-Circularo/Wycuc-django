@@ -1,7 +1,11 @@
+from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 import wikipedia
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WikipediaSearchView(APIView):
@@ -32,6 +36,13 @@ class WikipediaSearchView(APIView):
             'Accept-Language', 'en').split(',')[0].split('-')[0]
         wikipedia.set_lang(lang)
 
+        cache_key = f"wikipedia_summary_{search_term}_{lang}"
+        cached_summary = cache.get(cache_key)
+
+        if cached_summary:
+            print(f'Cache hit for search term "{search_term}"')
+            return Response({'result': cached_summary}, status=status.HTTP_200_OK)
+
         try:
             search_results = wikipedia.search(search_term)
             if not search_results:
@@ -39,6 +50,7 @@ class WikipediaSearchView(APIView):
 
             if search_term.lower() == search_results[0].lower():
                 summary = wikipedia.summary(search_term)
+                cache.set(cache_key, summary, 3600)
                 return Response({'result': summary}, status=status.HTTP_200_OK)
             else:
                 articles = [{'name': item} for item in search_results]
@@ -47,5 +59,11 @@ class WikipediaSearchView(APIView):
         except wikipedia.exceptions.DisambiguationError as e:
             articles = [{'name': item} for item in e.options]
             return Response({'result': None, 'articles': articles}, status=status.HTTP_303_SEE_OTHER)
+        except wikipedia.exceptions.PageError as e:
+            logger.error(
+                f'Page not found for search term "{search_term}": {str(e)}')
+            return Response({'error': 'Page not found.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            logger.error(
+                f'Unexpected error while searching for "{search_term}": {str(e)}')
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
