@@ -40,7 +40,6 @@ class WikipediaSearchView(APIView):
         cached_summary = cache.get(cache_key)
 
         if cached_summary:
-            print(f'Cache hit for search term "{search_term}"')
             return Response({'result': cached_summary}, status=status.HTTP_200_OK)
 
         try:
